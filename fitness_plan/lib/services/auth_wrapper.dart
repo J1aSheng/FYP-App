@@ -2,7 +2,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import '../screens/home_screen.dart';
 import '../screens/login_screen.dart';
-// FIXED: Changed from profile_setup_screen.dart to profile_screen.dart
 import '../screens/profile_screen.dart'; 
 import 'database_service.dart';
 import '../models/user_model.dart';
@@ -20,12 +19,12 @@ class AuthWrapper extends StatelessWidget {
           return const Scaffold(body: Center(child: CircularProgressIndicator()));
         }
 
-        // 1. If no user is logged into Firebase Auth
+        // 1. If no user is logged in, show Login Screen
         if (!authSnapshot.hasData) {
           return const LoginScreen();
         }
 
-        // 2. User is logged in, now check Firestore for their profile
+        // 2. User is logged in, check Firestore for their profile data
         return FutureBuilder<UserModel?>(
           future: DatabaseService().getUserProfile(authSnapshot.data!.uid),
           builder: (context, profileSnapshot) {
@@ -33,12 +32,10 @@ class AuthWrapper extends StatelessWidget {
               return const Scaffold(body: Center(child: CircularProgressIndicator()));
             }
 
-            // 3. Conditional Routing Logic
+            // 3. Routing Logic: If profile exists, go to Home. Otherwise, setup Profile.
             if (profileSnapshot.hasData && profileSnapshot.data != null) {
-              // User has data saved -> Dashboard
               return HomeScreen(user: profileSnapshot.data!);
             } else {
-              // User is new/no data -> Profile Setup
               return const ProfileScreen(); 
             }
           },

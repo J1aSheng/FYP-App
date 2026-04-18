@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
-import 'profile_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -14,32 +13,31 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final passwordController = TextEditingController();
   final confirmPasswordController = TextEditingController();
   final AuthService _auth = AuthService();
+  bool isLoading = false;
 
   void register() async {
     String email = emailController.text.trim();
     String password = passwordController.text.trim();
-    String confirmPassword = confirmPasswordController.text.trim();
+    String confirm = confirmPasswordController.text.trim();
 
-    if (email.isEmpty || password.isEmpty) {
+    if (email.isEmpty || password.isEmpty || confirm.isEmpty) {
       showSnackBar("Please fill all fields");
       return;
     }
 
-    if (password != confirmPassword) {
+    if (password != confirm) {
       showSnackBar("Passwords do not match");
       return;
     }
 
-    final user = await _auth.register(email, password);
+    setState(() => isLoading = true);
+    final errorMessage = await _auth.register(email, password);
+    if (mounted) setState(() => isLoading = false);
 
-    if (user != null) {
-      if (!mounted) return;
-      // Navigate to ProfileScreen to set up physical details
-      Navigator.pushReplacement(
-          context, MaterialPageRoute(builder: (_) => const ProfileScreen()));
-    } else {
-      showSnackBar("Registration Failed. Try a different email.");
+    if (errorMessage != null) {
+      showSnackBar(errorMessage);
     }
+    // AuthWrapper will detect the new user and show the Profile Screen automatically.
   }
 
   void showSnackBar(String message) {
@@ -55,23 +53,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
         child: SingleChildScrollView(
           child: Column(
             children: [
-              const Text("Register", style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
               const SizedBox(height: 20),
-              TextField(controller: emailController, decoration: const InputDecoration(labelText: "Email")),
-              const SizedBox(height: 10),
-              TextField(controller: passwordController, obscureText: true, decoration: const InputDecoration(labelText: "Password")),
-              const SizedBox(height: 10),
-              TextField(controller: confirmPasswordController, obscureText: true, decoration: const InputDecoration(labelText: "Confirm Password")),
-              const SizedBox(height: 20),
+              TextField(controller: emailController, decoration: const InputDecoration(labelText: "Email", border: OutlineInputBorder())),
+              const SizedBox(height: 15),
+              TextField(controller: passwordController, obscureText: true, decoration: const InputDecoration(labelText: "Password", border: OutlineInputBorder())),
+              const SizedBox(height: 15),
+              TextField(controller: confirmPasswordController, obscureText: true, decoration: const InputDecoration(labelText: "Confirm Password", border: OutlineInputBorder())),
+              const SizedBox(height: 25),
               ElevatedButton(
-                onPressed: register, 
+                onPressed: isLoading ? null : register, 
                 style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 50)),
-                child: const Text("Sign Up"),
+                child: isLoading 
+                  ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Text("Sign Up"),
               ),
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text("Already have an account? Login"),
-              )
             ],
           ),
         ),
