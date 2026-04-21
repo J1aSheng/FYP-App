@@ -16,24 +16,23 @@ class _LoginScreenState extends State<LoginScreen> {
   bool isLoading = false;
 
   void login() async {
-    String email = emailController.text.trim();
-    String password = passwordController.text.trim();
-
-    if (email.isEmpty || password.isEmpty) {
-      showSnackBar("Please fill all fields");
+    if (emailController.text.isEmpty || passwordController.text.isEmpty) {
+      showSnackBar("Fill all fields");
       return;
     }
 
     setState(() => isLoading = true);
 
-    final errorMessage = await _auth.login(email, password);
+    // After this call, AuthWrapper will see the change and navigate for you
+    final error = await _auth.login(
+        emailController.text.trim(), passwordController.text.trim());
 
-    if (mounted) setState(() => isLoading = false);
-
-    if (errorMessage != null) {
-      showSnackBar(errorMessage);
+    if (mounted) {
+      setState(() => isLoading = false);
+      if (error != null) {
+        showSnackBar(error);
+      }
     }
-    // No "Navigator.push" needed here. AuthWrapper will handle it automatically.
   }
 
   void showSnackBar(String message) {
@@ -48,20 +47,19 @@ class _LoginScreenState extends State<LoginScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Text("AI Fitness Planner", style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.teal)),
-            const SizedBox(height: 30),
+            const Text("Login", style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 20),
             TextField(controller: emailController, decoration: const InputDecoration(labelText: "Email", border: OutlineInputBorder())),
-            const SizedBox(height: 15),
+            const SizedBox(height: 10),
             TextField(controller: passwordController, obscureText: true, decoration: const InputDecoration(labelText: "Password", border: OutlineInputBorder())),
-            const SizedBox(height: 25),
+            const SizedBox(height: 20),
             ElevatedButton(
               onPressed: isLoading ? null : login, 
               style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 50)),
               child: isLoading 
-                ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2)) 
                 : const Text("Login"),
             ),
-            const SizedBox(height: 15),
             TextButton(
               onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const RegisterScreen())),
               child: const Text("Don't have an account? Register here"),
