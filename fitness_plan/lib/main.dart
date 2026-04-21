@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+// Ensure these paths match your project structure
 import 'screens/login_screen.dart';
-import 'screens/home_screen.dart';
-import 'screens/profile_screen.dart'; // Ensure this name matches your file
+import 'screens/main_screen.dart'; // Import the new navigation wrapper
+import 'screens/profile_screen.dart'; 
 import 'services/database_service.dart';
 import 'models/user_model.dart';
 
@@ -25,10 +26,11 @@ class FitnessPlanApp extends StatelessWidget {
       title: 'AI Fitness Planner',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
+        // Using the Green theme color from your design
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF2E7D32)),
         useMaterial3: true,
+        scaffoldBackgroundColor: const Color(0xFFF8FAF9),
       ),
-      // The app now starts at the AuthWrapper
       home: const AuthWrapper(), 
     );
   }
@@ -44,17 +46,17 @@ class AuthWrapper extends StatelessWidget {
       stream: FirebaseAuth.instance.authStateChanges(),
       builder: (context, authSnapshot) {
         
-        // 1. Check if the user is even logged in
+        // 1. Loading State
         if (authSnapshot.connectionState == ConnectionState.waiting) {
           return const Scaffold(body: Center(child: CircularProgressIndicator()));
         }
 
+        // 2. Not Logged In
         if (!authSnapshot.hasData) {
-          // No user found -> Go to Login
-          return const LoginScreen();
+          return const LoginScreen(); //
         }
 
-        // 2. User is logged in, now check if they have a Profile in Firestore
+        // 3. Logged In: Check for Firestore Profile
         return FutureBuilder<UserModel?>(
           future: DatabaseService().getUserProfile(authSnapshot.data!.uid),
           builder: (context, profileSnapshot) {
@@ -62,13 +64,14 @@ class AuthWrapper extends StatelessWidget {
               return const Scaffold(body: Center(child: CircularProgressIndicator()));
             }
 
-            // 3. Conditional Routing
+            // PROFILE EXISTS: Go to MainScreen (which has the Bottom Nav Bar)
             if (profileSnapshot.hasData && profileSnapshot.data != null) {
-              // PROFILE EXISTS: Go straight to the Dashboard
-              return HomeScreen(user: profileSnapshot.data!);
-            } else {
-              // NO PROFILE: Go to the Profile Setup Screen
-              return const ProfileScreen();
+              return MainScreen(user: profileSnapshot.data!); //
+            } 
+            
+            // NO PROFILE: Go to Profile Setup to "Generate AI Plan"
+            else {
+              return const ProfileScreen(); //
             }
           },
         );

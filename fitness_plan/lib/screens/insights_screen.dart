@@ -2,13 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/user_model.dart';
-import '../services/database_service.dart';
+// Removed DatabaseService import if not used elsewhere to keep code clean
 
 class InsightsScreen extends StatelessWidget {
   final UserModel user;
-  final _db = DatabaseService(); // This field is now used below
 
-  InsightsScreen({super.key, required this.user});
+  const InsightsScreen({super.key, required this.user});
 
   // Calculate the target calories based on user profile
   double _getDailyTarget() {
@@ -27,9 +26,13 @@ class InsightsScreen extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAF9),
-      appBar: AppBar(title: const Text("Weekly Insights")),
+      appBar: AppBar(
+        title: const Text("Weekly Insights", style: TextStyle(fontWeight: FontWeight.bold)),
+        backgroundColor: Colors.white,
+        elevation: 0,
+        foregroundColor: Colors.black,
+      ),
       body: FutureBuilder<QuerySnapshot>(
-        // Use Firebase directly or a method from your _db service
         future: FirebaseFirestore.instance
             .collection('users')
             .doc(user.uid)
@@ -51,7 +54,7 @@ class InsightsScreen extends StatelessWidget {
             );
           }
 
-          // Calculate average calories from the fetched data
+          // Calculate average calories
           double totalForAvg = 0;
           for (var doc in docs) {
             totalForAvg += (doc['total_calories'] ?? 0);
@@ -61,6 +64,7 @@ class InsightsScreen extends StatelessWidget {
           return SingleChildScrollView(
             padding: const EdgeInsets.all(20),
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text("Calorie Trends (Last 7 Days)", 
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
@@ -75,9 +79,9 @@ class InsightsScreen extends StatelessWidget {
                       titlesData: const FlTitlesData(
                         leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
                         topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                        bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 30)),
                       ),
                       barGroups: List.generate(docs.length, (index) {
-                        // Reverse the list so the most recent day is on the right
                         final data = docs[(docs.length - 1) - index].data() as Map<String, dynamic>;
                         double consumed = (data['total_calories'] as num).toDouble();
                         return _makeGroupData(index, consumed, target);
@@ -87,9 +91,15 @@ class InsightsScreen extends StatelessWidget {
                 ),
                 
                 const SizedBox(height: 40),
-                _buildStatCard("Average Consumed", "${average.toInt()} kcal"),
-                _buildStatCard("Daily Target", "${target.toInt()} kcal"),
-                _buildStatCard("Consistency Score", "${((average / target) * 100).clamp(0, 100).toInt()}%"),
+                const Text("Statistics", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 15),
+                _buildStatCard("Average Consumed", "${average.toInt()} kcal", const Color(0xFF2E7D32)),
+                _buildStatCard("Daily Target", "${target.toInt()} kcal", Colors.blueGrey),
+                _buildStatCard(
+                  "Consistency Score", 
+                  "${((average / target) * 100).clamp(0, 100).toInt()}%",
+                  const Color(0xFFE57373) // Salmon color from design
+                ),
               ],
             ),
           );
@@ -104,27 +114,32 @@ class InsightsScreen extends StatelessWidget {
       barRods: [
         BarChartRodData(
           toY: y,
-          color: y > target ? Colors.redAccent : const Color(0xFF00695C),
-          width: 18,
+          // Green if under target, Red/Salmon if over
+          color: y > target ? const Color(0xFFE57373) : const Color(0xFF2E7D32),
+          width: 20,
           borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
           backDrawRodData: BackgroundBarChartRodData(
             show: true,
             toY: target,
-            color: Colors.grey[200],
+            color: Colors.grey.withValues(alpha: 0.1), // Modern non-deprecated opacity
           ),
         ),
       ],
     );
   }
 
-  Widget _buildStatCard(String label, String value) => Card(
-    elevation: 0,
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+  Widget _buildStatCard(String label, String value, Color color) => Container(
     margin: const EdgeInsets.only(bottom: 15),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(20),
+      boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10)],
+    ),
     child: ListTile(
-      title: Text(label, style: const TextStyle(color: Colors.grey)),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
+      title: Text(label, style: const TextStyle(color: Colors.grey, fontWeight: FontWeight.w500)),
       trailing: Text(value, 
-        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Color(0xFF00695C))),
+        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: color)),
     ),
   );
 }
