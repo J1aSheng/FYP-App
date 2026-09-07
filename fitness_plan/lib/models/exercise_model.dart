@@ -1,3 +1,6 @@
+// This is the one Exercise definition used across the app — workout_model.dart
+// exports it, and the old, incompatible Exercise classes that used to live in
+// user_model.dart and workout_model.dart have been removed.
 class Exercise {
   final String name;
   final String reps;

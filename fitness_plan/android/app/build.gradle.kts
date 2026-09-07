@@ -21,7 +21,7 @@ android {
 
     defaultConfig {
         applicationId = "com.example.fitness_plan"
-        minSdk = flutter.minSdkVersion // Required for Gemini AI vision features
+        minSdkVersion(26) // Required for Gemini AI vision features
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName

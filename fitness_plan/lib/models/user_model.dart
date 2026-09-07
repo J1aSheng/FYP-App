@@ -39,7 +39,6 @@ class MealPlan {
   MealPlan({required this.id, required this.name, required this.calories, required this.imageUrl});
 }
 
-class Exercise {
-  final String name, reps, duration;
-  Exercise({required this.name, required this.reps, required this.duration});
-}
+// Exercise used to be defined here too — it's now only in exercise_model.dart
+// (see WorkoutPlan in workout_model.dart, which exports it) so every screen
+// works with one Exercise shape instead of three incompatible ones.

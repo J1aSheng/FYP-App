@@ -52,4 +52,14 @@
              <action android:name="android.media.action.IMAGE_CAPTURE" />
         </intent>    
     </queries>
+
+    <!-- Required so url_launcher can open the personalized YouTube video/search
+         links from the workout screens (Android 11+ package visibility rules,
+         see https://developer.android.com/training/package-visibility). -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
+    </queries>
 </manifest>

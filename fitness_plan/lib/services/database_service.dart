@@ -1,54 +1,117 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart'; // Required for debugPrint
 import '../models/user_model.dart';
 
 class DatabaseService {
-  final _db = FirebaseFirestore.instance;
+  final FirebaseFirestore _db = FirebaseFirestore.instance; //
 
-  // Save/Get Profile
-  Future<void> saveUserProfile(UserModel user) async => await _db.collection('users').doc(user.uid).set(user.toMap());
-  
+  /// Fetches the user's data from Firestore and converts it to a UserModel.[cite: 4]
   Future<UserModel?> getUserProfile(String uid) async {
-    final doc = await _db.collection('users').doc(uid).get();
-    return doc.exists ? UserModel.fromMap(doc.data()!, doc.id) : null;
+    try {
+      DocumentSnapshot doc = await _db.collection('users').doc(uid).get(); //[cite: 4]
+      if (doc.exists) {
+        return UserModel.fromMap(doc.data() as Map<String, dynamic>, uid); //[cite: 4]
+      }
+    } catch (e) {
+      debugPrint("Error fetching profile: $e"); //[cite: 4]
+    }
+    return null;
   }
 
-  // Log Meal with Auto-ID and Batch Sync
-  Future<void> logMealWithSync(String uid, Map<String, dynamic> foodData, String localPath) async {
-    final batch = _db.batch();
-    final now = DateTime.now();
-    final today = now.toString().split(' ')[0];
-
-    // 1. Add to Meal Collection
-    final mealRef = _db.collection('users').doc(uid).collection('meals').doc();
-    batch.set(mealRef, {
-      'name': foodData['name'] ?? 'Unknown',
-      'calories': foodData['calories'] ?? 0,
-      'imageUrl': localPath,
-      'timestamp': FieldValue.serverTimestamp(),
-    });
-
-    // 2. Update Daily Aggregates (For your dashboard ring)
-    final dailyRef = _db.collection('users').doc(uid).collection('daily_logs').doc(today);
-    batch.set(dailyRef, {
-      'total_calories': FieldValue.increment(foodData['calories'] ?? 0),
-      'last_updated': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
-
-    await batch.commit();
+  /// Saves the initial user profile during setup[cite: 4]
+  Future<void> saveUserProfile(UserModel user) async {
+    await _db.collection('users').doc(user.uid).set(user.toMap()); //[cite: 4]
   }
 
-  Stream<List<MealPlan>> getTodaysMeals(String uid) {
-    return _db.collection('users').doc(uid).collection('meals')
-        .orderBy('timestamp', descending: true)
-        .snapshots().map((s) => s.docs.map((d) => MealPlan(
-          id: d.id,
-          name: d['name'],
-          calories: d['calories'],
-          imageUrl: d['imageUrl'],
-        )).toList());
+  /// ✅ NEW: Logs workout activity and increments burned calories[cite: 4]
+  Future<void> logWorkoutActivity({
+    required String uid,
+    required int calories,
+    required String workoutTitle,
+  }) async {
+    // Generate a document ID based on today's date (YYYY-MM-DD)[cite: 4]
+    String todayId = DateTime.now().toString().split(' ')[0]; //[cite: 4]
+
+    DocumentReference dailyLogRef = _db
+        .collection('users')
+        .doc(uid)
+        .collection('daily_logs')
+        .doc(todayId); //[cite: 4]
+
+    try {
+      await dailyLogRef.set({
+        'activities': FieldValue.arrayUnion([{
+          'activity_name': workoutTitle,
+          'calories_burned': calories,
+          'logged_at': Timestamp.now(), //[cite: 4]
+        }]),
+        // This keeps a separate running total for calories burned today[cite: 4]
+        'total_burned': FieldValue.increment(calories), 
+        'last_updated': Timestamp.now(), //[cite: 4]
+      }, SetOptions(merge: true)); //[cite: 4]
+      
+      debugPrint("Workout logged: $workoutTitle, $calories cal");
+    } catch (e) {
+      debugPrint("Failed to log workout: $e"); //[cite: 4]
+      throw Exception("Failed to sync workout: $e");
+    }
   }
 
-  Future<void> deleteMeal(String uid, String mealId) async {
-    await _db.collection('users').doc(uid).collection('meals').doc(mealId).delete();
+  /// Logs a meal and updates calories in a single transaction[cite: 4]
+  Future<void> logMealWithSync(String uid, Map<String, dynamic> foodData, String imagePath) async {
+    String todayId = DateTime.now().toString().split(' ')[0]; //[cite: 4]
+
+    // ✅ Fix: foodData['calories'] can come back as a String from the AI
+    // response (e.g. "123" instead of 123). Passing a String straight into
+    // FieldValue.increment() throws inside the Firestore plugin, and that
+    // error can bubble up with a message that renders as bare "null" in a
+    // SnackBar — so coerce it defensively here instead.
+    int mealCalories;
+    final rawCalories = foodData['calories'];
+    if (rawCalories is int) {
+      mealCalories = rawCalories;
+    } else if (rawCalories is num) {
+      mealCalories = rawCalories.toInt();
+    } else if (rawCalories is String) {
+      mealCalories = int.tryParse(rawCalories) ?? 0;
+    } else {
+      mealCalories = 0;
+    }
+
+    DocumentReference dailyLogRef = _db
+        .collection('users')
+        .doc(uid)
+        .collection('daily_logs')
+        .doc(todayId); //[cite: 4]
+
+    try {
+      await dailyLogRef.set({
+        'meals': FieldValue.arrayUnion([{
+          'food_name': foodData['food_name']?.toString() ?? 'Unknown Dish', //[cite: 4]
+          'calories': mealCalories, //[cite: 4]
+          'image_path': imagePath, //[cite: 4]
+          'portion': foodData['portion']?.toString() ?? '1 serving', //[cite: 4]
+          'logged_at': Timestamp.now(), //[cite: 4]
+        }]),
+        'total_calories': FieldValue.increment(mealCalories), //[cite: 4]
+        'last_updated': Timestamp.now(), //[cite: 4]
+      }, SetOptions(merge: true)); //[cite: 4]
+    } catch (e) {
+      // ✅ Fix: some FirebaseException / PlatformException instances have a
+      // null `message` field, so "$e" alone can print as literally "null".
+      // Build a message that's never empty regardless of what Firestore
+      // throws.
+      final String detail = (e is FirebaseException)
+          ? (e.message?.isNotEmpty == true ? e.message! : e.code)
+          : e.toString();
+      debugPrint("Failed to sync meal: $detail"); //[cite: 4]
+      throw Exception("Failed to sync meal: $detail"); //[cite: 4]
+    }
+  }
+
+  /// Retrieves the stream of logs for the current day[cite: 4]
+  Stream<DocumentSnapshot> getDailyStream(String uid) {
+    String todayId = DateTime.now().toString().split(' ')[0]; //[cite: 4]
+    return _db.collection('users').doc(uid).collection('daily_logs').doc(todayId).snapshots(); //[cite: 4]
   }
 }
