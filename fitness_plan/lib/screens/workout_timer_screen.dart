@@ -1,116 +1,200 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/workout_model.dart';
-import '../models/user_model.dart'; 
+import '../models/user_model.dart';
 import '../services/database_service.dart';
 import '../services/gamification_service.dart';
-import '../services/youtube_suggestion_service.dart';
-import 'package:url_launcher/url_launcher.dart';
+import '../widgets/inline_video_player.dart';
+
+const _kGreen = Color(0xFF2E7D32);
+const _kInk = Color(0xFF191C19);
+const _kMuted = Color(0xFF747972);
+const _kBg = Color(0xFFFBFDFA);
+const _kBorder = Color(0xFFF0F0F0);
+const _kMintBg = Color(0xFFF0F4EF);
 
 class WorkoutTimerScreen extends StatefulWidget {
   final WorkoutPlan plan;
-  final UserModel user; 
-  const WorkoutTimerScreen({super.key, required this.plan, required this.user});
+  final UserModel user;
+
+  const WorkoutTimerScreen({
+    super.key,
+    required this.plan,
+    required this.user,
+  });
 
   @override
   State<WorkoutTimerScreen> createState() => _WorkoutTimerScreenState();
 }
 
-class _WorkoutTimerScreenState extends State<WorkoutTimerScreen> with TickerProviderStateMixin {
-  // --- ✅ 邏輯完全保留自 Source 12 ---
-  int _currentActivityIndex = 0; 
-  int _activeStepIndex = 0; 
-  late int _remainingSeconds;
-  late int _totalActivitySeconds;
-  Timer? _timer;
-  bool _isActive = true;
+class _WorkoutTimerScreenState extends State<WorkoutTimerScreen> {
+  int _currentActivityIndex = 0;
+
+  // IMPORTANT: there is no independent Flutter countdown anymore.
+  // The YouTube video clock is the only source of truth.
+  Duration _videoDuration = Duration.zero;
+  Duration _videoPosition = Duration.zero;
+  bool _videoPlaying = false;
+  bool _videoCompleted = false;
+
   final _db = DatabaseService();
   final _gamification = GamificationService();
-  final _youtube = YoutubeSuggestionService();
 
-  @override
-  void initState() {
-    super.initState();
-    _initTimerForActivity();
-  }
-
-  void _initTimerForActivity() {
-    String durationStr = widget.plan.exercises[_currentActivityIndex].duration;
-    int timeValue = int.tryParse(durationStr.split(' ')[0]) ?? 60;
-    _totalActivitySeconds = durationStr.toLowerCase().contains('min') ? timeValue * 60 : timeValue;
-    _remainingSeconds = _totalActivitySeconds;
-    _activeStepIndex = 0; 
-    _startTimer();
-  }
-
-  void _startTimer() {
-    _timer?.cancel(); 
-    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (_remainingSeconds > 0) {
-        if (_isActive) {
-          setState(() {
-            _remainingSeconds--;
-            _updateCycleLogic(); 
-          });
-        }
-      } else {
-        _moveToNextActivity();
-      }
-    });
-  }
-
-  void _updateCycleLogic() {
-    // instructions is a real array now — no more regex-splitting a blob string.
-    final steps = widget.plan.exercises[_currentActivityIndex].instructions;
-
-    if (steps.isEmpty) return;
-    int secondsPerStep = 6; 
-    int totalCycleTime = steps.length * secondsPerStep;
-    int elapsed = _totalActivitySeconds - _remainingSeconds;
-    int newStepIndex = (elapsed % totalCycleTime) ~/ secondsPerStep;
-    if (_activeStepIndex != newStepIndex) {
-      setState(() => _activeStepIndex = newStepIndex);
+  String _getLevelText(WorkoutLevel level) {
+    switch (level) {
+      case WorkoutLevel.beginner:
+        return 'Beginner';
+      case WorkoutLevel.intermediate:
+        return 'Intermediate';
+      case WorkoutLevel.advanced:
+        return 'Advanced';
     }
   }
 
+  Duration get _remainingVideoTime {
+    if (_videoDuration == Duration.zero) return Duration.zero;
+    final remaining = _videoDuration - _videoPosition;
+    return remaining.isNegative ? Duration.zero : remaining;
+  }
+
+  double get _videoProgress {
+    if (_videoDuration.inMilliseconds <= 0) return 0.0;
+    return (_videoPosition.inMilliseconds / _videoDuration.inMilliseconds)
+        .clamp(0.0, 1.0);
+  }
+
+  String _formatDuration(Duration duration) {
+    final minutes = duration.inMinutes;
+    final seconds = duration.inSeconds % 60;
+    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+  }
+
+  String get _remainingText {
+    if (_videoDuration == Duration.zero) return '--:--';
+    return _formatDuration(_remainingVideoTime);
+  }
+
+  void _resetVideoState() {
+    _videoDuration = Duration.zero;
+    _videoPosition = Duration.zero;
+    _videoPlaying = false;
+    _videoCompleted = false;
+  }
+
+  void _onVideoDurationReady(Duration duration) {
+    if (!mounted) return;
+    setState(() {
+      _videoDuration = duration;
+    });
+  }
+
+  void _onVideoProgressChanged(Duration position, Duration duration) {
+    if (!mounted) return;
+    setState(() {
+      _videoPosition = position;
+      _videoDuration = duration;
+    });
+  }
+
+  void _onVideoPlayingChanged(bool playing) {
+    if (!mounted) return;
+    setState(() {
+      _videoPlaying = playing;
+    });
+  }
+
+  void _onVideoFinished() {
+    if (!mounted || _videoCompleted) return;
+
+    setState(() {
+      _videoCompleted = true;
+      _videoPlaying = false;
+      if (_videoDuration > Duration.zero) {
+        _videoPosition = _videoDuration;
+      }
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          _currentActivityIndex == widget.plan.exercises.length - 1
+              ? 'Video finished! You can complete the workout.'
+              : 'Video finished! You can move to the next exercise.',
+        ),
+        backgroundColor: _kGreen,
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
   void _moveToNextActivity() {
+    if (!_videoCompleted) return;
+
     if (_currentActivityIndex < widget.plan.exercises.length - 1) {
       setState(() {
         _currentActivityIndex++;
-        _isActive = true;
+        _resetVideoState();
       });
-      _initTimerForActivity();
     } else {
-      _timer?.cancel();
       _finishWorkout();
+    }
+  }
+
+  Future<void> _saveWorkoutHistory() async {
+    if (widget.plan.exercises.isEmpty) return;
+
+    final exercise = widget.plan.exercises.first;
+
+    try {
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(widget.user.uid)
+          .collection('workout_history')
+          .add({
+        'title': widget.plan.title,
+        'subtitle': widget.plan.subtitle,
+        'category': widget.plan.category,
+        'minutes': widget.plan.minutes,
+        'calories': widget.plan.calories,
+        'level': widget.plan.level.index,
+        'imagePath': widget.plan.imagePath,
+        'completedAt': FieldValue.serverTimestamp(),
+        'exercise': {
+          'name': exercise.name,
+          'reps': exercise.reps,
+          'duration': exercise.duration,
+          'caloriesBurned': exercise.caloriesBurned,
+          'instructions': exercise.instructions,
+        },
+      });
+    } catch (e) {
+      debugPrint('Workout history save error: $e');
     }
   }
 
   Future<void> _finishWorkout() async {
     try {
       await _db.logWorkoutActivity(
-        uid: widget.user.uid, 
+        uid: widget.user.uid,
         calories: widget.plan.calories,
         workoutTitle: widget.plan.title,
       );
-    } catch (e) { if (mounted) debugPrint("Sync Error: $e"); }
+    } catch (e) {
+      debugPrint('Database sync error: $e');
+    }
+
+    await _saveWorkoutHistory();
 
     try {
-      // Extends the streak and awards XP — feeds the plan screen's
-      // streak/level header, badges row, and history calendar.
       await _gamification.recordWorkoutCompletion(
         uid: widget.user.uid,
         caloriesBurned: widget.plan.calories,
       );
-    } catch (e) { if (mounted) debugPrint("Gamification sync error: $e"); }
+    } catch (e) {
+      debugPrint('Gamification sync error: $e');
+    }
 
-    _showCompletionDialog();
-  }
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
+    if (mounted) _showCompletionDialog();
   }
 
   Widget _buildCleanCard({required Widget child, EdgeInsets? margin}) {
@@ -118,141 +202,256 @@ class _WorkoutTimerScreenState extends State<WorkoutTimerScreen> with TickerProv
       margin: margin,
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(30),
+        borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 20,
             offset: const Offset(0, 8),
           ),
         ],
-        border: Border.all(color: const Color(0xFFF0F0F0)),
+        border: Border.all(color: _kBorder),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(25),
+        padding: const EdgeInsets.all(20),
         child: child,
+      ),
+    );
+  }
+
+  Widget _buildInfoChip({
+    required IconData icon,
+    required String label,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: _kMintBg,
+        borderRadius: BorderRadius.circular(15),
+        border: Border.all(color: const Color(0xFFE8F5E9)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: color, size: 16),
+          const SizedBox(width: 8),
+          Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.w800,
+              fontSize: 13,
+            ),
+          ),
+        ],
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final ex = widget.plan.exercises[_currentActivityIndex];
-    // instructions is a real array now — no regex parsing needed here either.
-    final List<String> steps = ex.instructions;
+    if (widget.plan.exercises.isEmpty) {
+      return Scaffold(
+        backgroundColor: _kBg,
+        appBar: AppBar(backgroundColor: Colors.white, elevation: 0),
+        body: const Center(child: Text('No exercises found for this plan.')),
+      );
+    }
 
-    // Defensive: fall back if the index ever overflows.
-    final String currentStepText = (steps.length > _activeStepIndex) 
-        ? steps[_activeStepIndex] 
-        : steps.isNotEmpty ? steps[0] : "Follow the exercise guidance.";
+    final exercise = widget.plan.exercises.first;
+    final caption = exercise.instructions.isNotEmpty
+        ? exercise.instructions.first
+        : '';
 
     return Scaffold(
-      backgroundColor: const Color(0xFFFBFDFA), 
-      body: SafeArea(
+      backgroundColor: _kBg,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.close_rounded, color: _kInk, size: 24),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: Text(
+          'WORKOUT VIDEO',
+          style: const TextStyle(
+            color: _kMuted,
+            fontSize: 11,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 1.5,
+          ),
+        ),
+        centerTitle: true,
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(12, 18, 12, 120),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Padding(
-              padding: const EdgeInsets.all(20),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.close_rounded, color: Color(0xFF191C19)), 
-                    onPressed: () => Navigator.pop(context)
-                  ),
-                  const Text(
-                    "SESSION IN PROGRESS", 
-                    style: TextStyle(color: Color(0xFF747972), fontSize: 10, letterSpacing: 2, fontWeight: FontWeight.w900)
-                  ),
-                  const SizedBox(width: 48), 
-                ],
-              ),
-            ),
-
-            const Spacer(),
-
-            Stack(
-              alignment: Alignment.center,
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                SizedBox(
-                  width: 280, height: 280,
-                  child: CircularProgressIndicator(
-                    value: _remainingSeconds / _totalActivitySeconds,
-                    strokeWidth: 8,
-                    backgroundColor: const Color(0xFFF0F4EF),
-                    color: const Color(0xFF2E7D32), 
-                    strokeCap: StrokeCap.round,
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.plan.title,
+                        style: const TextStyle(
+                          color: _kInk,
+                          fontSize: 24,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      Text(
+                        widget.plan.subtitle,
+                        style: const TextStyle(
+                          color: _kMuted,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      _formatTime(_remainingSeconds),
-                      style: const TextStyle(color: Color(0xFF191C19), fontSize: 80, fontWeight: FontWeight.w200),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                  decoration: BoxDecoration(
+                    color: _kGreen,
+                    borderRadius: BorderRadius.circular(15),
+                  ),
+                  child: Text(
+                    _videoDuration == Duration.zero
+                        ? '10–15 MIN VIDEO'
+                        : '${_formatDuration(_videoDuration)} VIDEO',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 11,
                     ),
-                    Text(
-                      ex.name.toUpperCase(), 
-                      style: const TextStyle(color: Color(0xFF747972), letterSpacing: 3, fontSize: 12, fontWeight: FontWeight.w800)
-                    ),
-                    const SizedBox(height: 8),
-                    GestureDetector(
-                      onTap: () => _openExerciseDemo(ex.name),
-                      child: const Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.play_circle_outline_rounded, color: Color(0xFF2E7D32), size: 16),
-                          SizedBox(width: 5),
-                          Text(
-                            "WATCH DEMO",
-                            style: TextStyle(color: Color(0xFF2E7D32), fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 1),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
               ],
             ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                _buildInfoChip(
+                  icon: Icons.bar_chart,
+                  label: _getLevelText(widget.plan.level),
+                  color: _kMuted,
+                ),
+                const SizedBox(width: 12),
+                _buildInfoChip(
+                  icon: Icons.local_fire_department,
+                  label: '${widget.plan.calories} kcal',
+                  color: Colors.orange,
+                ),
+              ],
+            ),
+            const SizedBox(height: 26),
 
-            const Spacer(),
-
-            _buildCleanCard(
-              margin: const EdgeInsets.symmetric(horizontal: 25, vertical: 30),
-              child: Column(
-                children: [
-                  const Text(
-                    "CURRENT ACTION", 
-                    style: TextStyle(color: Color(0xFF2E7D32), fontWeight: FontWeight.w900, letterSpacing: 1.5, fontSize: 10)
+            const SizedBox(height: 8),
+            const Text(
+              'Workout Activity',
+              style: TextStyle(
+                color: _kInk,
+                fontSize: 20,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 0.5,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(24),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.04),
+                    blurRadius: 20,
+                    offset: const Offset(0, 8),
                   ),
-                  const SizedBox(height: 20),
-                  AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 500),
-                    child: Text(
-                      currentStepText,
-                      key: ValueKey<int>(_activeStepIndex),
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(color: Color(0xFF191C19), fontSize: 22, fontWeight: FontWeight.w600, height: 1.4),
+                ],
+                border: Border.all(color: _kBorder),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                exercise.name,
+                                style: const TextStyle(
+                                  color: _kGreen,
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 18,
+                                ),
+                              ),
+                            ),
+                            if (exercise.reps.isNotEmpty &&
+                                exercise.reps != '-') ...[
+                              Text(
+                                exercise.reps,
+                                style: const TextStyle(
+                                  color: _kMuted,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                            ],
+                            Text(
+                              _videoDuration == Duration.zero
+                                  ? '10–15 min'
+                                  : _formatDuration(_videoDuration),
+                              style: const TextStyle(
+                                color: _kMuted,
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (caption.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            caption,
+                            style: const TextStyle(
+                              color: _kMuted,
+                              fontSize: 13,
+                              height: 1.4,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 15),
+                          child: Divider(color: _kBorder, height: 1),
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 30),
-                  
-                  GestureDetector(
-                    onTap: () => setState(() => _isActive = !_isActive),
-                    child: Container(
-                      padding: const EdgeInsets.all(20),
-                      decoration: const BoxDecoration(
-                        color: Color(0xFF2E7D32), 
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(color: Color(0x332E7D32), blurRadius: 15, offset: Offset(0, 8))
-                        ]
-                      ),
-                      child: Icon(
-                        _isActive ? Icons.pause_rounded : Icons.play_arrow_rounded, 
-                        color: Colors.white, 
-                        size: 35
-                      ),
+
+                  // Larger video area: almost full width of the card.
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(8, 0, 8, 18),
+                    child: InlineVideoPlayer(
+                      key: ValueKey(widget.plan.title),
+                      exerciseName: widget.plan.title,
+                      category: widget.plan.category,
+                      levelLabel: _getLevelText(widget.plan.level),
+                      onDurationReady: _onVideoDurationReady,
+                      onProgressChanged: _onVideoProgressChanged,
+                      onPlayingChanged: _onVideoPlayingChanged,
+                      onVideoEnded: _onVideoFinished,
                     ),
                   ),
                 ],
@@ -261,73 +460,80 @@ class _WorkoutTimerScreenState extends State<WorkoutTimerScreen> with TickerProv
           ],
         ),
       ),
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 18),
+          color: _kBg,
+          child: ElevatedButton(
+            onPressed: _videoCompleted ? _finishWorkout : null,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _kGreen,
+              disabledBackgroundColor: Colors.grey.shade400,
+              foregroundColor: Colors.white,
+              disabledForegroundColor: Colors.white,
+              minimumSize: const Size(double.infinity, 60),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              elevation: _videoCompleted ? 8 : 0,
+              shadowColor: _kGreen.withValues(alpha: 0.3),
+            ),
+            child: Text(
+              _videoCompleted
+                  ? 'COMPLETE WORKOUT'
+                  : 'FINISH VIDEO TO UNLOCK',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w900,
+                fontSize: 14,
+                letterSpacing: 1,
+              ),
+            ),
+          ),
+        ),
+      ),
     );
-  }
-
-  String _formatTime(int seconds) {
-    int mins = seconds ~/ 60;
-    int secs = seconds % 60;
-    return "${mins.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}";
-  }
-
-  Future<void> _openExerciseDemo(String exerciseName) async {
-    final suggestion = await _youtube.suggestVideo(
-      exerciseName: exerciseName,
-      category: widget.plan.category,
-      levelLabel: widget.plan.level.name,
-    );
-    final uri = Uri.parse(suggestion.url);
-    try {
-      final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
-      if (!launched && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Couldn't open YouTube — check that a browser/YouTube app is installed.")),
-        );
-      }
-    } catch (e) {
-      debugPrint("Could not open video link: $e");
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Couldn't open YouTube — check that a browser/YouTube app is installed.")),
-        );
-      }
-    }
   }
 
   void _showCompletionDialog() {
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => AlertDialog(
+      builder: (ctx) => AlertDialog(
         backgroundColor: Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         title: const Text(
-          "Well Done!", 
-          style: TextStyle(color: Color(0xFF191C19), fontWeight: FontWeight.w900), 
-          textAlign: TextAlign.center
+          'Workout Completed!',
+          style: TextStyle(color: _kInk, fontWeight: FontWeight.w900),
+          textAlign: TextAlign.center,
         ),
-        content: const Text(
-          "Activity cycle complete. Your progress has been synced.", 
-          style: TextStyle(color: Color(0xFF747972), fontWeight: FontWeight.w500), 
-          textAlign: TextAlign.center
+        content: Text(
+          'You burned ${widget.plan.calories} kcal. Streak and XP updated.',
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: _kMuted),
         ),
         actions: [
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             child: ElevatedButton(
-              onPressed: () { 
-                Navigator.pop(context); 
-                Navigator.pop(context); 
-              }, 
+              onPressed: () {
+                Navigator.pop(ctx);
+                if (mounted) Navigator.pop(context);
+              },
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF2E7D32), 
-                minimumSize: const Size(double.infinity, 55),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-                elevation: 0,
+                backgroundColor: _kGreen,
+                minimumSize: const Size(double.infinity, 50),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
               ),
               child: const Text(
-                "FINISH", 
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, letterSpacing: 1)
+                'FINISH',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
           ),

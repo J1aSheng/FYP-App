@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'home_screen.dart';
+import 'diet_screen.dart';
 import 'insights_screen.dart';
 import 'ai_coach_screen.dart';
 import 'user_profile_screen.dart'; 
@@ -100,12 +101,20 @@ class _MainScreenState extends State<MainScreen> {
         final userData = snapshot.data!.data() as Map<String, dynamic>;
         final updatedUser = UserModel.fromMap(userData, widget.user.uid);
 
+        // Screen indexes:
+        // 0 = Home
+        // 1 = Workout Plan
+        // 2 = Insights
+        // 3 = Profile
+        // 4 = AI Coach
+        // 5 = Diet
         final List<Widget> screens = [
-          HomeScreen(user: updatedUser),              
-          WorkoutPlanScreen(user: updatedUser), 
-          InsightsScreen(user: updatedUser),          
-          ProfileScreen(user: updatedUser), 
-          AiCoachScreen(user: updatedUser),           
+          HomeScreen(user: updatedUser),
+          WorkoutPlanScreen(user: updatedUser),
+          InsightsScreen(user: updatedUser),
+          ProfileScreen(user: updatedUser),
+          AiCoachScreen(user: updatedUser),
+          DietScreen(user: updatedUser),
         ];
 
         return Scaffold(
@@ -130,7 +139,7 @@ class _MainScreenState extends State<MainScreen> {
                 ),
                 
                 // AI Coach 快捷入口气泡
-                if (_currentIndex != 4 && _isBubbleVisible) 
+                if ((_currentIndex == 0 || _currentIndex == 5) && _isBubbleVisible)
                   Positioned(
                     bottom: 125, 
                     left: 0,
@@ -154,7 +163,7 @@ class _MainScreenState extends State<MainScreen> {
                                 color: const Color(0xFFE8F5E9),
                                 borderRadius: BorderRadius.circular(15),
                                 boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 10)],
-                                border: Border.all(color: const Color(0xFF2E7D32).withOpacity(0.1)),
+                                border: Border.all(color: const Color(0xFF2E7D32).withValues(alpha: 0.1)),
                               ),
                               child: const Row(
                                 mainAxisSize: MainAxisSize.min,
@@ -176,7 +185,7 @@ class _MainScreenState extends State<MainScreen> {
                   ),
 
                 // 相机扫描浮动按钮
-                if (_currentIndex != 4)
+                if (_currentIndex == 0 || _currentIndex == 5)
                   Positioned(
                     bottom: 115,
                     right: 25,
@@ -196,24 +205,63 @@ class _MainScreenState extends State<MainScreen> {
           ),
           
           bottomNavigationBar: Padding(
-            padding: const EdgeInsets.fromLTRB(15, 0, 15, 30), 
+            padding: const EdgeInsets.fromLTRB(10, 0, 10, 24),
             child: Container(
-              height: 80,
+              height: 78,
               decoration: BoxDecoration(
                 color: Colors.white,
-                borderRadius: BorderRadius.circular(40),
-                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 20)],
-                border: Border.all(color: const Color(0xFFF0F0F0)),
+                borderRadius: BorderRadius.circular(38),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.06),
+                    blurRadius: 20,
+                    offset: const Offset(0, 7),
+                  ),
+                ],
+                border: Border.all(
+                  color: const Color(0xFFF0F0F0),
+                ),
               ),
-              padding: const EdgeInsets.symmetric(horizontal: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 5),
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
-                  _buildNavItem(0, Icons.home_outlined, Icons.home_rounded, "HOME"),
-                  _buildNavItem(1, Icons.fitness_center_outlined, Icons.fitness_center_rounded, "PLAN"),
-                  _buildCircularAiIcon(4),
-                  _buildNavItem(2, Icons.bar_chart_outlined, Icons.bar_chart_rounded, "INSIGHTS"),
-                  _buildNavItem(3, Icons.person_outline_rounded, Icons.person_rounded, "PROFILE"),
+                  _buildNavItem(
+                    0,
+                    Icons.home_outlined,
+                    Icons.home_rounded,
+                    "HOME",
+                  ),
+                  _buildNavItem(
+                    5,
+                    Icons.restaurant_menu_outlined,
+                    Icons.restaurant_menu_rounded,
+                    "DIET",
+                  ),
+                  _buildNavItem(
+                    1,
+                    Icons.fitness_center_outlined,
+                    Icons.fitness_center_rounded,
+                    "PLAN",
+                  ),
+                  _buildNavItem(
+                    4,
+                    Icons.auto_awesome_outlined,
+                    Icons.auto_awesome_rounded,
+                    "AI",
+                  ),
+                  _buildNavItem(
+                    2,
+                    Icons.bar_chart_outlined,
+                    Icons.bar_chart_rounded,
+                    "INSIGHTS",
+                  ),
+                  _buildNavItem(
+                    3,
+                    Icons.person_outline_rounded,
+                    Icons.person_rounded,
+                    "PROFILE",
+                  ),
                 ],
               ),
             ),
@@ -223,38 +271,52 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
-  Widget _buildNavItem(int index, IconData i, IconData ai, String l) {
-    bool active = _currentIndex == index;
+  Widget _buildNavItem(
+    int index,
+    IconData icon,
+    IconData activeIcon,
+    String label,
+  ) {
+    final active = _currentIndex == index;
+
     return InkWell(
+      borderRadius: BorderRadius.circular(18),
       onTap: () => setState(() => _currentIndex = index),
       child: SizedBox(
-        width: 60,
+        width: 48,
+        height: 60,
         child: Column(
-          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(active ? ai : i, color: active ? const Color(0xFF2E7D32) : const Color(0xFF747972), size: 26),
+            Icon(
+              active ? activeIcon : icon,
+              color: active
+                  ? const Color(0xFF2E7D32)
+                  : const Color(0xFF747972),
+              size: 23,
+            ),
             const SizedBox(height: 4),
-            Text(l, style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: active ? const Color(0xFF2E7D32) : const Color(0xFF747972))),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontSize: 8,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.15,
+                  color: active
+                      ? const Color(0xFF2E7D32)
+                      : const Color(0xFF747972),
+                ),
+              ),
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildCircularAiIcon(int index) {
-    bool active = _currentIndex == index;
-    return GestureDetector(
-      onTap: () => setState(() => _currentIndex = index),
-      child: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: active ? const Color(0xFF2E7D32) : const Color(0xFFF0F4EF),
-          shape: BoxShape.circle,
-        ),
-        child: Icon(Icons.auto_awesome_rounded, color: active ? Colors.white : const Color(0xFF2E7D32), size: 28),
-      ),
-    );
-  }
+
 }
 
 class TrianglePainter extends CustomPainter {

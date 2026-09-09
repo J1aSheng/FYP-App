@@ -30,6 +30,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+
   firebase_core: ^4.11.0
   firebase_auth: ^6.5.4
   firebase_storage: ^13.4.3
@@ -43,9 +44,12 @@ dependencies:
   path_provider: ^2.1.0
   path: ^1.9.0
   intl: ^0.20.3
-  youtube_player_flutter: ^10.0.1
-  health: ^13.3.1
+  webview_flutter: ^4.13.0
+  http: ^1.2.0 
+  health: ^13.3.2
   permission_handler: ^12.0.3
+  pedometer: ^4.2.0
+  shared_preferences: ^2.5.5
 
 dev_dependencies:
   flutter_test:
@@ -69,6 +73,8 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
+  assets:
+    - assets/workouts/
   # To add assets to your application, add an assets section, like this:
   # assets:
   #   - images/a_dot_burr.jpeg
